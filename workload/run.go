@@ -48,20 +48,33 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 		opts.AfterSetup()
 	}
 
+	if opts.Time > 0 {
+		ctx, _ = context.WithTimeout(ctx, time.Duration(opts.Time)*time.Second)
+	}
+
 	events := make(chan interface{}, opts.QSize)
-	go func() {
-		defer close(events)
+	g, failed := errgroup.WithContext(ctx)
+
+	g.Go(func() (err error) {
+		defer func() {
+			close(events)
+			if x := recover(); x != nil {
+				if e, ok := x.(error); ok {
+					err = e
+				} else {
+					err = fmt.Errorf("unexpected panic during generating workload event: %+v", x)
+				}
+			}
+		}()
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-		gen := ctx
-		if opts.Time > 0 {
-			gen, _ = context.WithTimeout(ctx, time.Duration(opts.Time)*time.Second)
-		}
 		if opts.Rate > 0 {
 			ticker := time.NewTicker(time.Second / time.Duration(opts.Rate))
 			defer ticker.Stop()
 			for {
 				select {
-				case <-gen.Done():
+				case <-ctx.Done():
+					return
+				case <-failed.Done():
 					return
 				case <-ticker.C:
 					events <- opts.Workload.Gen(rng)
@@ -70,15 +83,16 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 		} else {
 			for {
 				select {
-				case <-gen.Done():
+				case <-ctx.Done():
+					return
+				case <-failed.Done():
 					return
 				case events <- opts.Workload.Gen(rng):
 				}
 			}
 		}
-	}()
+	})
 
-	g, _ := errgroup.WithContext(ctx)
 	for i := 0; i < opts.Threads; i++ {
 		g.Go(func() (err error) {
 			defer func() {
