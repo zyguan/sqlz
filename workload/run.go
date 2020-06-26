@@ -2,6 +2,7 @@ package workload
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -27,9 +28,6 @@ type RunOptions struct {
 }
 
 func Run(ctx context.Context, opts RunOptions) (err error) {
-	if opts.Time <= 0 {
-		return nil
-	}
 	if opts.QSize < 0 {
 		opts.QSize = 0
 	}
@@ -54,13 +52,16 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 	go func() {
 		defer close(events)
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-		timeout := time.After(time.Duration(opts.Time) * time.Second)
+		gen := ctx
+		if opts.Time > 0 {
+			gen, _ = context.WithTimeout(ctx, time.Duration(opts.Time)*time.Second)
+		}
 		if opts.Rate > 0 {
 			ticker := time.NewTicker(time.Second / time.Duration(opts.Rate))
 			defer ticker.Stop()
 			for {
 				select {
-				case <-timeout:
+				case <-gen.Done():
 					return
 				case <-ticker.C:
 					events <- opts.Workload.Gen(rng)
@@ -69,7 +70,7 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 		} else {
 			for {
 				select {
-				case <-timeout:
+				case <-gen.Done():
 					return
 				case events <- opts.Workload.Gen(rng):
 				}
@@ -79,9 +80,18 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 
 	g, _ := errgroup.WithContext(ctx)
 	for i := 0; i < opts.Threads; i++ {
-		g.Go(func() error {
+		g.Go(func() (err error) {
+			defer func() {
+				if x := recover(); x != nil {
+					if e, ok := x.(error); ok {
+						err = e
+					} else {
+						err = fmt.Errorf("unexpected panic during handling workload event: %+v", x)
+					}
+				}
+			}()
 			for ev := range events {
-				if err := opts.Workload.Handle(ev); err != nil {
+				if err = opts.Workload.Handle(ev); err != nil {
 					return err
 				}
 			}
