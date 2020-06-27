@@ -164,14 +164,6 @@ func (t *batchTask) doBatch(b *Batch, retry int) error {
 				return err
 			}
 		}
-		conn, err := t.db.Conn(t.ctx)
-		if err == nil {
-			b.Conn = conn
-		} else if isRetryable(err) {
-			return backoff()
-		} else {
-			return err
-		}
 	}
 	if b.Conn == nil {
 		return errors.New("exceed retry limit")
