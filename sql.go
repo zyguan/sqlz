@@ -64,6 +64,7 @@ func (db *DB) WithConns(n int, do func(conns ...*Conn) error) error {
 
 func (db *DB) MustFetch(query string, args ...interface{}) *resultset.ResultSet {
 	rows := db.MustQuery(query, args...)
+	defer rows.Close()
 	return Try(resultset.ReadFromRows(rows)).(*resultset.ResultSet)
 }
 
@@ -73,6 +74,21 @@ func (db *DB) MustQuery(query string, args ...interface{}) *sql.Rows {
 
 func (db *DB) MustExec(query string, args ...interface{}) sql.Result {
 	return Try(db.ExecContext(db.ctx, query, args...)).(sql.Result)
+}
+
+func (db *DB) AsyncFetch(query string, args ...interface{}) <-chan Values {
+	future := make(chan Values, 1)
+	go func() {
+		defer close(future)
+		rows, err := db.QueryContext(db.ctx, query, args...)
+		if err != nil {
+			future <- Pack(nil, err)
+			return
+		}
+		defer rows.Close()
+		future <- Pack(resultset.ReadFromRows(rows))
+	}()
+	return future
 }
 
 func (db *DB) AsyncQuery(query string, args ...interface{}) <-chan Values {
@@ -111,6 +127,7 @@ func WrapConn(ctx context.Context, conn *sql.Conn) *Conn { return &Conn{conn, ct
 
 func (conn *Conn) MustFetch(query string, args ...interface{}) *resultset.ResultSet {
 	rows := conn.MustQuery(query, args...)
+	defer rows.Close()
 	return Try(resultset.ReadFromRows(rows)).(*resultset.ResultSet)
 }
 
@@ -132,6 +149,21 @@ func (conn *Conn) QueryRow(query string, args ...interface{}) *sql.Row {
 
 func (conn *Conn) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return conn.ExecContext(conn.ctx, query, args...)
+}
+
+func (conn *Conn) AsyncFetch(query string, args ...interface{}) <-chan Values {
+	future := make(chan Values, 1)
+	go func() {
+		defer close(future)
+		rows, err := conn.QueryContext(conn.ctx, query, args...)
+		if err != nil {
+			future <- Pack(nil, err)
+			return
+		}
+		defer rows.Close()
+		future <- Pack(resultset.ReadFromRows(rows))
+	}()
+	return future
 }
 
 func (conn *Conn) AsyncQuery(query string, args ...interface{}) <-chan Values {
