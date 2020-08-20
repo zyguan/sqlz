@@ -99,6 +99,7 @@ func tEncodeDecodeCheck(rs1 *ResultSet) func(t *testing.T) {
 		rs2 := &ResultSet{}
 		assert.NoError(t, rs2.Decode(bs))
 		assert.Equal(t, rs1.DataDigest(), rs2.DataDigest())
+		assert.Equal(t, rs1.ExecResult(), rs2.ExecResult())
 		assert.NoError(t, Diff(rs1, rs2, DiffOptions{CheckPrecision: true, CheckSchema: true}))
 
 		for i := 0; i < rs1.NCols(); i++ {

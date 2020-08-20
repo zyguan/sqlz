@@ -83,9 +83,12 @@ func ReadFromRows(rows *sql.Rows) (*ResultSet, error) {
 
 func (rs *ResultSet) String() string {
 	if rs.IsExecResult() {
-		return fmt.Sprintf("%+v", rs.ExecResult())
+		return strconv.FormatInt(rs.ExecResult().RowsAffected, 10) + " rows affected"
 	}
-	return fmt.Sprintf("ResultSet(%d, %d)", rs.NRows(), rs.NCols())
+	if rs.NRows() == 0 {
+		return "empty set"
+	}
+	return strconv.Itoa(rs.NRows()) + " rows in set"
 }
 
 func (rs *ResultSet) IsExecResult() bool { return len(rs.cols) == 0 }
@@ -184,7 +187,7 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 		for j, exp := range expect[i] {
 			var (
 				expBytes []byte
-				expStr string
+				expStr   string
 			)
 			if exp == nil {
 				if row[j] != nil {
@@ -206,7 +209,7 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 				expStr = fmt.Sprintf("%v", exp)
 			}
 			if expBytes != nil {
-				if bytes.Compare(row[j], expBytes) != 0  {
+				if bytes.Compare(row[j], expBytes) != 0 {
 					err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, string(row[j]), expBytes)
 					return
 				}
