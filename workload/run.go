@@ -113,5 +113,6 @@ func Run(ctx context.Context, opts RunOptions) (err error) {
 		})
 	}
 
-	return g.Wait()
+	err = g.Wait()
+	return
 }
