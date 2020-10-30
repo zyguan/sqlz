@@ -20,7 +20,7 @@ import (
 	. "github.com/zyguan/just"
 )
 
-var re = regexp.MustCompile(`^/\*\s*(\w+)\s*\*/\s+(.*);.*$`)
+var re = regexp.MustCompile(`^/\*\s*(\w+)(:\w+)?\s*\*/\s+(.*);.*$`)
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -32,25 +32,32 @@ func readInput(r io.Reader) []stmtflow.Stmt {
 	in.Split(bufio.ScanLines)
 	for in.Scan() {
 		line := in.Text()
-		sess, stmt := split(line)
+		sess, ann, stmt := split(line)
 		if len(sess) == 0 {
 			continue
+		}
+		var flags uint
+		if isQuery(stmt) {
+			flags |= stmtflow.S_QUERY
+		}
+		if strings.ToLower(ann) == ":wait" {
+			flags |= stmtflow.S_WAIT
 		}
 		lst = append(lst, stmtflow.Stmt{
 			Sess:  sess,
 			SQL:   stmt,
-			Query: isQuery(stmt),
+			Flags: flags,
 		})
 	}
 	return lst
 }
 
-func split(line string) (string, string) {
+func split(line string) (string, string, string) {
 	ss := re.FindStringSubmatch(line)
-	if len(ss) != 3 {
-		return "", ""
+	if len(ss) != 4 {
+		return "", "", ""
 	}
-	return ss[1], ss[2]
+	return ss[1], ss[2], ss[3]
 }
 
 func isQuery(sql string) bool {

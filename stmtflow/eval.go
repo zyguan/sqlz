@@ -90,10 +90,15 @@ type SessionStmt interface {
 	Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (SessionStmt, error)
 }
 
+const (
+	S_QUERY uint = 1 << iota
+	S_WAIT
+)
+
 type Stmt struct {
 	Sess  string
 	SQL   string
-	Query bool
+	Flags uint
 }
 
 func (s Stmt) Session() string { return s.Sess }
@@ -111,7 +116,7 @@ func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (Sessi
 			c.Return()
 			close(f)
 		}()
-		if s.Query {
+		if s.Flags&S_QUERY > 0 {
 			t0 := time.Now()
 			rows, err := c.QueryContext(ctx, s.SQL)
 			if err != nil {
@@ -216,6 +221,20 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 			status := stmt.Status()
 
 			if status == Pending {
+				if stmt.Statement().Flags&S_WAIT > 0 && !p.waited {
+					done := make(chan struct{})
+					go func() {
+						pool.Wait()
+						close(done)
+					}()
+					select {
+					case <-done:
+						p.waited = true
+					case <-ctx.Done():
+						return pool, ctx.Err()
+					}
+					break
+				}
 				c, err := pool.Borrow(stmt.Session())
 				if err != nil {
 					if err == ErrConnBorrowed {
@@ -262,6 +281,8 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 type stmtNode struct {
 	stmt SessionStmt
 	next *stmtNode
+
+	waited bool
 }
 
 func initForEval(ctx context.Context, db *sql.DB, stmts []Stmt) (*Pool, *stmtNode, error) {
@@ -274,7 +295,7 @@ func initForEval(ctx context.Context, db *sql.DB, stmts []Stmt) (*Pool, *stmtNod
 	for i := len(stmts) - 1; i >= 0; i-- {
 		stmt := stmts[i]
 		s := stmt.Session()
-		h.next = &stmtNode{stmt, h.next}
+		h.next = &stmtNode{stmt, h.next, false}
 		if !m[s] {
 			c, err := db.Conn(ctx)
 			if err != nil {
