@@ -179,7 +179,7 @@ func (e *Event) EqualTo(other Event) (bool, string) {
 				return false, fmt.Sprintf(tag+": expect (%s), got ok", thisRet.Err.Error())
 			}
 			e1, e2 := WrapError(thisRet.Err), WrapError(thatRet.Err)
-			if e1 != e2 {
+			if e1.Code != e2.Code || (e1.Code < 0 && e1.Message != e2.Message) {
 				return false, fmt.Sprintf(tag+": expect (%s), got (%s)", e1.Error(), e2.Error())
 			}
 		} else {
