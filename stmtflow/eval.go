@@ -93,12 +93,13 @@ type SessionStmt interface {
 const (
 	S_QUERY uint = 1 << iota
 	S_WAIT
+	S_UNORDERED
 )
 
 type Stmt struct {
-	Sess  string
-	SQL   string
-	Flags uint
+	Sess  string `json:"s"`
+	SQL   string `json:"q"`
+	Flags uint   `json:"flags,omitempty"`
 }
 
 func (s Stmt) Session() string { return s.Sess }
@@ -120,20 +121,20 @@ func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (Sessi
 			t0 := time.Now()
 			rows, err := c.QueryContext(ctx, s.SQL)
 			if err != nil {
-				f <- Return{nil, err, [2]time.Time{t0, time.Now()}}
+				f <- Return{s, nil, err, [2]time.Time{t0, time.Now()}}
 				return
 			}
 			defer rows.Close()
 			res, err := resultset.ReadFromRows(rows)
-			f <- Return{res, err, [2]time.Time{t0, time.Now()}}
+			f <- Return{s, res, err, [2]time.Time{t0, time.Now()}}
 		} else {
 			t0 := time.Now()
 			res, err := c.ExecContext(ctx, s.SQL)
 			if err != nil {
-				f <- Return{nil, err, [2]time.Time{t0, time.Now()}}
+				f <- Return{s, nil, err, [2]time.Time{t0, time.Now()}}
 				return
 			}
-			f <- Return{resultset.NewFromResult(res), err, [2]time.Time{t0, time.Now()}}
+			f <- Return{s, resultset.NewFromResult(res), err, [2]time.Time{t0, time.Now()}}
 		}
 	}()
 	r := RunningStmt{s, f}
@@ -179,11 +180,6 @@ func (s CompletedStmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duratio
 	return s, nil
 }
 
-type SessionEvent struct {
-	Sess    string
-	Payload interface{}
-}
-
 type Block struct{}
 
 type Resume struct{}
@@ -193,9 +189,10 @@ type Invoke struct {
 }
 
 type Return struct {
-	Res *resultset.ResultSet
-	Err error
-	T   [2]time.Time
+	Stmt Stmt
+	Res  *resultset.ResultSet
+	Err  error
+	T    [2]time.Time
 }
 
 type Waitable interface{ Wait() }
@@ -203,7 +200,7 @@ type Waitable interface{ Wait() }
 type EvalOptions struct {
 	PingTime  time.Duration
 	BlockTime time.Duration
-	Callback  func(e SessionEvent)
+	Callback  func(e Event)
 }
 
 func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Waitable, error) {
@@ -213,7 +210,7 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 	}
 	callback := opts.Callback
 	if callback == nil {
-		callback = func(_ SessionEvent) {}
+		callback = func(_ Event) {}
 	}
 	for head.next != nil {
 		for p := head; p.next != nil; p = p.next {
@@ -242,18 +239,18 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 					}
 					return pool, err
 				}
-				callback(SessionEvent{stmt.Session(), Invoke{stmt.Statement()}})
+				callback(NewInvokeEvent(stmt.Session(), Invoke{stmt.Statement()}))
 				s, err := stmt.Poll(ctx, c, opts.BlockTime)
 				if err != nil {
 					if err == ErrPollTimeout {
-						callback(SessionEvent{stmt.Session(), Block{}})
+						callback(NewBlockEvent(stmt.Session()))
 						p.next.stmt = s
 						continue
 					}
 					return pool, err
 				}
 				// Assert typeof(s) == CompletedStmt
-				callback(SessionEvent{stmt.Session(), s.Result()})
+				callback(NewReturnEvent(stmt.Session(), s.Result()))
 				p.next = p.next.next
 				break
 			} else if status == Running {
@@ -266,8 +263,8 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 					return pool, err
 				}
 				// Assert typeof(s) == CompletedStmt
-				callback(SessionEvent{stmt.Session(), Resume{}})
-				callback(SessionEvent{stmt.Session(), s.Result()})
+				callback(NewResumeEvent(stmt.Session()))
+				callback(NewReturnEvent(stmt.Session(), s.Result()))
 				p.next = p.next.next
 				break
 			} else {

@@ -20,7 +20,7 @@ import (
 	. "github.com/zyguan/just"
 )
 
-var re = regexp.MustCompile(`^/\*\s*(\w+)(:\w+)?\s*\*/\s+(.*);.*$`)
+var re = regexp.MustCompile(`^/\*\s*(\w+)(:[\w,]+)?\s*\*/\s+(.*);.*$`)
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -32,7 +32,7 @@ func readInput(r io.Reader) []stmtflow.Stmt {
 	in.Split(bufio.ScanLines)
 	for in.Scan() {
 		line := in.Text()
-		sess, ann, stmt := split(line)
+		sess, stmt, marks := split(line)
 		if len(sess) == 0 {
 			continue
 		}
@@ -40,24 +40,36 @@ func readInput(r io.Reader) []stmtflow.Stmt {
 		if isQuery(stmt) {
 			flags |= stmtflow.S_QUERY
 		}
-		if strings.ToLower(ann) == ":wait" {
-			flags |= stmtflow.S_WAIT
+		for _, m := range marks {
+			switch strings.ToLower(m) {
+			case "wait":
+				flags |= stmtflow.S_WAIT
+			case "unordered":
+				flags |= stmtflow.S_UNORDERED
+			}
 		}
 		lst = append(lst, stmtflow.Stmt{
 			Sess:  sess,
-			SQL:   stmt,
+			SQL:   line,
 			Flags: flags,
 		})
 	}
 	return lst
 }
 
-func split(line string) (string, string, string) {
-	ss := re.FindStringSubmatch(line)
+func split(line string) (string, string, []string) {
+	ss, marks := re.FindStringSubmatch(line), []string{}
 	if len(ss) != 4 {
-		return "", "", ""
+		return "", "", marks
 	}
-	return ss[1], ss[2], ss[3]
+	if len(ss[2]) > 0 {
+		for _, s := range strings.Split(ss[2][1:], ",") {
+			if len(s) > 0 {
+				marks = append(marks, s)
+			}
+		}
+	}
+	return ss[1], ss[3], marks
 }
 
 func isQuery(sql string) bool {
@@ -104,41 +116,42 @@ func main() {
 	w, err := stmtflow.Eval(context.TODO(), db, readInput(f), stmtflow.EvalOptions{
 		PingTime:  opts.pingTime,
 		BlockTime: opts.blockTime,
-		Callback: func(e stmtflow.SessionEvent) {
-			switch p := e.Payload.(type) {
-			case stmtflow.Invoke:
-				fmt.Printf("/* %s */ %s;\n", e.Sess, p.Stmt.SQL)
-			case stmtflow.Return:
-				if p.Err == nil {
-					if opts.verbose && !p.Res.IsExecResult() {
+		Callback: func(e stmtflow.Event) {
+			switch e.Kind {
+			case stmtflow.EventInvoke:
+				fmt.Println(e.Invoke().Stmt.SQL)
+			case stmtflow.EventReturn:
+				ret := e.Return()
+				if ret.Err == nil {
+					if opts.verbose && !ret.Res.IsExecResult() {
 						buf, fst := new(bytes.Buffer), true
-						p.Res.PrettyPrint(buf)
+						ret.Res.PrettyPrint(buf)
 						for {
 							line, err := buf.ReadString('\n')
 							if err != nil {
 								break
 							}
 							if fst {
-								fmt.Print("-- ", e.Sess, " >> ", line)
+								fmt.Print("-- ", e.Session, " >> ", line)
 								fst = false
 							} else {
-								fmt.Print("-- ", e.Sess, "    ", line)
+								fmt.Print("-- ", e.Session, "    ", line)
 							}
 						}
 					} else {
-						fmt.Printf("-- %s >> %s\n", e.Sess, p.Res.String())
+						fmt.Printf("-- %s >> %s\n", e.Session, ret.Res.String())
 					}
 					if opts.withLat {
-						fmt.Printf("-- %s    %s ~ %s (cost %s)\n", e.Sess,
-							p.T[0].Format("15:04:05.000"), p.T[1].Format("15:04:05.000"), p.T[1].Sub(p.T[0]))
+						fmt.Printf("-- %s    %s ~ %s (cost %s)\n", e.Session,
+							ret.T[0].Format("15:04:05.000"), ret.T[1].Format("15:04:05.000"), ret.T[1].Sub(ret.T[0]))
 					}
 				} else {
-					fmt.Printf("-- %s >> %s\n", e.Sess, p.Err.Error())
+					fmt.Printf("-- %s >> %s\n", e.Session, ret.Err.Error())
 				}
-			case stmtflow.Block:
-				fmt.Printf("-- %s >> blocked\n", e.Sess)
-			case stmtflow.Resume:
-				fmt.Printf("-- %s >> resumed\n", e.Sess)
+			case stmtflow.EventBlock:
+				fmt.Printf("-- %s >> blocked\n", e.Session)
+			case stmtflow.EventResume:
+				fmt.Printf("-- %s >> resumed\n", e.Session)
 			}
 		},
 	})

@@ -167,6 +167,31 @@ func (rs *ResultSet) DataDigest(optFilters ...func(i int, j int, raw []byte) boo
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func (rs *ResultSet) UnorderedDigest(optFilters ...func(i int, j int, raw []byte) bool) string {
+	digests := make([][]byte, rs.NRows())
+	for i, row := range rs.data {
+		h := sha1.New()
+	cellLoop:
+		for j, v := range row {
+			for _, filter := range optFilters {
+				if filter != nil && !filter(i, j, v) {
+					continue cellLoop
+				}
+			}
+			h.Write(v)
+		}
+		digests[i] = h.Sum(nil)
+	}
+	sort.Slice(digests, func(i, j int) bool {
+		return bytes.Compare(digests[i], digests[j]) < 0
+	})
+	h := sha1.New()
+	for _, digest := range digests {
+		h.Write(digest)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp Rows, err error)) (err error) {
 	defer func() {
 		if err != nil {
