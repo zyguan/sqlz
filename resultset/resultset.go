@@ -268,13 +268,13 @@ func (rs *ResultSet) PrettyPrint(out io.Writer) {
 		hdr[i] = c.Name
 	}
 	table.SetHeader(hdr)
-	for j, r := range rs.data {
+	for i, r := range rs.data {
 		row := make([]string, len(r))
-		for i, s := range r {
+		for j, s := range r {
 			if rs.isNil(i, j) {
-				row[i] = "NULL"
+				row[j] = "NULL"
 			} else {
-				row[i] = string(s)
+				row[j] = string(s)
 			}
 		}
 		table.Append(row)

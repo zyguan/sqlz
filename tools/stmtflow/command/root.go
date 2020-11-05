@@ -18,7 +18,7 @@ type CommonOptions struct {
 	BlockTime time.Duration
 }
 
-func (c *CommonOptions) Open() (*sql.DB, error) {
+func (c *CommonOptions) OpenDB() (*sql.DB, error) {
 	return sql.Open("mysql", c.DSN)
 }
 
@@ -47,7 +47,7 @@ func Root() *cobra.Command {
 	cmd.PersistentFlags().DurationVar(&opts.PingTime, "ping-time", 200*time.Millisecond, "max wait time to ping a blocked stamtent")
 	cmd.PersistentFlags().DurationVar(&opts.BlockTime, "block-time", 3*time.Second, "max time to wait a newly submitted statement")
 
-	cmd.AddCommand(Play(&opts))
+	cmd.AddCommand(AutoGen(), Play(&opts), Test(&opts))
 
 	return cmd
 }

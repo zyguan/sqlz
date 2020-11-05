@@ -15,21 +15,28 @@ import (
 func Play(c *CommonOptions) *cobra.Command {
 	var opts struct {
 		format.TextDumpOptions
-		Write bool
+		Write    bool
+		Negative bool
 	}
 	cmd := &cobra.Command{
-		Use:           "play",
-		Short:         "Play SQL tests",
+		Use:           "play [test.sql ...]",
+		Short:         "Try tests",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
 			}
+			ctx := context.Background()
+			db, err := c.OpenDB()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
 			for _, path := range args {
 				fmt.Println("# " + path)
 
-				sqlIn, sqlOut, jsonOut, err := openPlayFiles(path, opts.Write)
+				sqlIn, textOut, jsonOut, err := openPlayFiles(path, opts.Write, opts.Negative)
 				if err != nil {
 					return err
 				}
@@ -37,21 +44,16 @@ func Play(c *CommonOptions) *cobra.Command {
 				var (
 					history  = new(stmtflow.History)
 					stmts    = format.ParseSQL(sqlIn)
-					dumpText = format.TextEventDumper(sqlOut, opts.TextDumpOptions)
 					evalOpts = c.EvalOptions()
 				)
 
-				evalOpts.Callback = dumpText
 				if opts.Write {
-					evalOpts.Callback = stmtflow.ComposeHandler(dumpText, history.Collect)
+					evalOpts.Callback = stmtflow.ComposeHandler(format.TextEventDumper(io.MultiWriter(textOut, os.Stdout), opts.TextDumpOptions), history.Collect)
+				} else {
+					evalOpts.Callback = format.TextEventDumper(textOut, opts.TextDumpOptions)
 				}
 
-				db, err := c.Open()
-				if err != nil {
-					return err
-				}
-
-				w, err := stmtflow.Eval(c.WithTimeout(context.Background()), db, stmts, evalOpts)
+				w, err := stmtflow.Eval(c.WithTimeout(ctx), db, stmts, evalOpts)
 				if w != nil {
 					w.Wait()
 				}
@@ -63,7 +65,7 @@ func Play(c *CommonOptions) *cobra.Command {
 					if err = history.DumpJson(jsonOut); err != nil {
 						return err
 					}
-					sqlOut.Close()
+					textOut.Close()
 					jsonOut.Close()
 				}
 
@@ -73,12 +75,13 @@ func Play(c *CommonOptions) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&opts.Write, "write", "w", false, "write to expected result files")
+	cmd.Flags().BoolVarP(&opts.Negative, "negative", "n", false, "mark as a negative test")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", true, "verbose output")
 	cmd.Flags().BoolVar(&opts.WithLat, "with-lat", false, "record latency of each statement")
 	return cmd
 }
 
-func openPlayFiles(path string, write bool) (io.ReadCloser, io.WriteCloser, io.WriteCloser, error) {
+func openPlayFiles(path string, write bool, negative bool) (io.ReadCloser, io.WriteCloser, io.WriteCloser, error) {
 	r, err := os.Open(path)
 	if err != nil {
 		return nil, nil, nil, err
@@ -88,8 +91,11 @@ func openPlayFiles(path string, write bool) (io.ReadCloser, io.WriteCloser, io.W
 	}
 	ext := filepath.Ext(path)
 	base := path[0 : len(path)-len(ext)]
-	sqlPath, jsonPath := base+".result.sql", base+".result.json"
-	f1, err := os.OpenFile(sqlPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if negative {
+		base += ".neg"
+	}
+	textPath, jsonPath := base+".result.out", base+".result.json"
+	f1, err := os.OpenFile(textPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		r.Close()
 		return nil, nil, nil, err

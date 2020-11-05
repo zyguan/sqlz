@@ -68,7 +68,7 @@ type eventReturn struct {
 func (e Event) MarshalJSON() ([]byte, error) {
 	switch e.Kind {
 	case EventBlock, EventResume:
-		return json.Marshal(EventMeta{Kind: e.Kind})
+		return json.Marshal(e.EventMeta)
 	case EventInvoke:
 		inv := eventReturn{EventMeta: e.EventMeta}
 		if e.inv == nil {
@@ -136,6 +136,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		e.ret = &Return{}
+		e.ret.Stmt = ret.Stmt
 		if len(ret.T) > 0 {
 			e.ret.T[0] = time.Unix(0, ret.T[0])
 		}
@@ -162,18 +163,20 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 
 func (e *Event) EqualTo(other Event) (bool, string) {
 	if e.EventMeta != other.EventMeta {
-		return false, fmt.Sprintf("expect %s, got %s", e.Kind, other.Kind)
+		return false, fmt.Sprintf("expect %+v, got %+v", e.EventMeta, other.EventMeta)
 	}
 	tag := e.EventMeta.String()
 	if e.Kind == EventInvoke {
 		thisInv, thatInv := e.Invoke(), other.Invoke()
+		tag += "(" + thisInv.Stmt.SQL + ")"
 		if thisInv.Stmt != thatInv.Stmt {
-			return false, fmt.Sprintf(tag+": expect %v, got %v", thisInv.Stmt, thatInv.Stmt)
+			return false, fmt.Sprintf(tag+": expect %+v, got %+v", thisInv.Stmt, thatInv.Stmt)
 		}
 	} else if e.Kind == EventReturn {
 		thisRet, thatRet := e.Return(), other.Return()
+		tag += "(" + thisRet.Stmt.SQL + ")"
 		if thisRet.Stmt != thatRet.Stmt {
-			return false, fmt.Sprintf(tag+": expect %v, got %v", thisRet.Stmt, thatRet.Stmt)
+			return false, fmt.Sprintf(tag+": expect %+v, got %+v", thisRet.Stmt, thatRet.Stmt)
 		}
 		if thisRet.Err != nil {
 			if thatRet.Err == nil {
