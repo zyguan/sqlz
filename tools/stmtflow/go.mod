@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/go-sql-driver/mysql v1.5.0
-	github.com/zyguan/just v0.0.0-20200303164907-cac852552279
+	github.com/spf13/cobra v1.1.1
 	github.com/zyguan/sqlz v0.0.0-20201030123728-23c3cda6a9e6
 )
 

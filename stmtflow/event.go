@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -239,4 +240,18 @@ func WrapError(err error) (e Error) {
 		e = Error{-1, err.Error()}
 	}
 	return e
+}
+
+type History []Event
+
+func (h History) DumpJson(w io.Writer) error { return json.NewEncoder(w).Encode(h) }
+
+func (h *History) Collect(e Event) { *h = append(*h, e) }
+
+func ComposeHandler(fs ...func(Event)) func(Event) {
+	return func(event Event) {
+		for _, f := range fs {
+			f(event)
+		}
+	}
 }
