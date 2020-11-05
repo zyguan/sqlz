@@ -2,6 +2,7 @@ package resultset
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"flag"
 	"strconv"
 	"testing"
@@ -28,18 +29,18 @@ func testDB(t *testing.T) *sql.DB {
 }
 
 var rss = []ResultSet{
-	{nil, nil, ExecResult{0, 0, false, false}},
-	{[]ColumnDef{}, nil, ExecResult{1, 0, true, false}},
+	{nil, nil, nil, ExecResult{0, 0, false, false}},
+	{[]ColumnDef{}, nil, nil, ExecResult{1, 0, true, false}},
 	{[]ColumnDef{
 		{Name: "foo", Type: "TEXT"},
-	}, nil, ExecResult{0, 1, false, true}},
+	}, nil, nil, ExecResult{0, 1, false, true}},
 	{[]ColumnDef{
 		{Name: "foo", Type: "TEXT"},
 	}, [][][]byte{
 		{{0x1}},
 		{nil},
 		{{}},
-	}, ExecResult{1, 1, true, true}},
+	}, []uint64{2}, ExecResult{1, 1, true, true}},
 }
 
 func TestAssertDataNil(t *testing.T) {
@@ -53,6 +54,7 @@ func TestAssertDataNil(t *testing.T) {
 
 	// nil can match nil & empty string can match empty string
 	rs := ResultSet{cols: []ColumnDef{{Name: "foo", Type: "TEXT"}}, data: [][][]byte{{nil}}}
+	rs.markNil(0, 0)
 	assert.NoError(rs.AssertData(Rows{{nil}}, cb))
 	assert.Equal(0, callCnt)
 	rs = ResultSet{cols: []ColumnDef{{Name: "foo", Type: "TEXT"}}, data: [][][]byte{{[]byte{}}}}
@@ -64,6 +66,7 @@ func TestAssertDataNil(t *testing.T) {
 	assert.Error(rs.AssertData(Rows{{nil}}, cb))
 	assert.Equal(1, callCnt)
 	rs = ResultSet{cols: []ColumnDef{{Name: "foo", Type: "TEXT"}}, data: [][][]byte{{nil}}}
+	rs.markNil(0, 0)
 	assert.Error(rs.AssertData(Rows{{""}}, cb))
 	assert.Equal(2, callCnt)
 
@@ -95,6 +98,7 @@ func TestEncodeDecodeWithMySQLDataSource(t *testing.T) {
 func tEncodeDecodeCheck(rs1 *ResultSet) func(t *testing.T) {
 	return func(t *testing.T) {
 		bs, err := rs1.Encode()
+		t.Log(">>", "\""+base64.StdEncoding.EncodeToString(bs)+"\",")
 		assert.NoError(t, err)
 		rs2 := &ResultSet{}
 		assert.NoError(t, rs2.Decode(bs))

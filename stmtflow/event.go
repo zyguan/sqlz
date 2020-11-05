@@ -99,7 +99,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 			mem := make([]interface{}, rows*cols)
 			for i := 0; i < rows; i++ {
 				for j := 0; j < cols; j++ {
-					if x, ok := rs.RawValue(i, j); ok {
+					if x, ok := rs.RawValue(i, j); ok && x != nil {
 						mem[i*cols+j] = string(x)
 					}
 				}
