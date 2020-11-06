@@ -42,6 +42,7 @@ type ExecResult struct {
 type ResultSet struct {
 	cols []ColumnDef
 	data [][][]byte
+	nils []uint64
 	exec ExecResult
 }
 
@@ -72,11 +73,18 @@ func ReadFromRows(rows *sql.Rows) (*ResultSet, error) {
 		cols[i].Length, cols[i].HasLength = t.Length()
 		cols[i].Precision, cols[i].Scale, cols[i].HasPrecisionScale = t.DecimalSize()
 	}
-	rs := New(cols)
+	rs, i := New(cols), 0
 	for rows.Next() {
-		if err = rows.Scan(rs.AllocateRow()...); err != nil {
+		row := rs.AllocateRow()
+		if err = rows.Scan(row...); err != nil {
 			return rs, err
 		}
+		for j, col := range row {
+			if *col.(*[]byte) == nil {
+				rs.markNil(i, j)
+			}
+		}
+		i += 1
 	}
 	return rs, rows.Err()
 }
@@ -109,7 +117,7 @@ func (rs *ResultSet) ColumnDef(i int) ColumnDef {
 	return rs.cols[i]
 }
 
-func (rs *ResultSet) Sort(less func(i int, j int) bool) { sort.SliceStable(rs.data, less) }
+func (rs *ResultSet) Sort(less func(r1 int, r2 int) bool) { sort.SliceStable(rs.data, less) }
 
 func (rs *ResultSet) RawValue(i int, j int) ([]byte, bool) {
 	if i < 0 {
@@ -125,7 +133,11 @@ func (rs *ResultSet) RawValue(i int, j int) ([]byte, bool) {
 	if j < 0 || j >= len(row) {
 		return nil, false
 	}
-	return rs.data[i][j], true
+	v := rs.data[i][j]
+	if v == nil && !rs.isNil(i, j) {
+		return []byte{}, true
+	}
+	return v, true
 }
 
 func (rs *ResultSet) AllocateRow() []interface{} {
@@ -154,15 +166,33 @@ func (rs *ResultSet) DataDigest(optFilters ...func(i int, j int, raw []byte) boo
 					continue cellLoop
 				}
 			}
-			buf := make([]byte, 4)
-
-			binary.BigEndian.PutUint32(buf, uint32(i))
-			h.Write(buf)
-			binary.BigEndian.PutUint32(buf, uint32(j))
-			h.Write(buf)
-
-			h.Write(v)
+			_ = rs.encodeCellTo(h, i, j)
 		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (rs *ResultSet) UnorderedDigest(optFilters ...func(i int, j int, raw []byte) bool) string {
+	digests := make([][]byte, rs.NRows())
+	for i, row := range rs.data {
+		h := sha1.New()
+	cellLoop:
+		for j, v := range row {
+			for _, filter := range optFilters {
+				if filter != nil && !filter(i, j, v) {
+					continue cellLoop
+				}
+			}
+			_ = rs.encodeCellTo(h, i, j)
+		}
+		digests[i] = h.Sum(nil)
+	}
+	sort.Slice(digests, func(i, j int) bool {
+		return bytes.Compare(digests[i], digests[j]) < 0
+	})
+	h := sha1.New()
+	for _, digest := range digests {
+		h.Write(digest)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -181,43 +211,36 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 	}
 	for i, row := range rs.data {
 		if len(expect[i]) != rs.NCols() {
-			err = fmt.Errorf("invalid expect: there are %d items at %d row", len(expect[i]), i)
+			err = fmt.Errorf("invalid expected data: there are %d cols at %d row", len(expect[i]), i)
 			return
 		}
 		for j, exp := range expect[i] {
-			var (
-				expBytes []byte
-				expStr   string
-			)
-			if exp == nil {
-				if row[j] != nil {
-					err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, string(row[j]), nil)
-					return
-				}
+			if isNil := rs.isNil(i, j); exp == nil && isNil {
 				continue
-			} else if s, ok := exp.(interface{ String() string }); ok {
-				expStr = s.String()
-			} else if b, ok := exp.([]byte); ok {
-				expBytes = b
-			} else if b, ok := exp.(bool); ok {
-				if b {
-					expBytes = []byte{1}
-				} else {
-					expBytes = []byte{0}
-				}
-			} else {
-				expStr = fmt.Sprintf("%v", exp)
-			}
-			if expBytes != nil {
-				if bytes.Compare(row[j], expBytes) != 0 {
-					err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, string(row[j]), expBytes)
-					return
-				}
-			} else if expStr != string(row[j]) {
-				err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, string(row[j]), expStr)
+			} else if exp == nil {
+				err = fmt.Errorf("data mismatch (%q#%d): expect <nil> but got %v", rs.cols[j].Name, i, row[j])
 				return
-			} else if row[j] == nil {
-				err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, nil, expStr)
+			} else if isNil {
+				err = fmt.Errorf("data mismatch (%q#%d): expect %v but got <nil>", rs.cols[j].Name, i, exp)
+				return
+			}
+
+			ok := false
+			act, _ := rs.RawValue(i, j)
+			switch y := exp.(type) {
+			case string:
+				ok = string(act) == y
+			case fmt.Stringer:
+				ok = string(act) == y.String()
+			case []byte:
+				ok = bytes.Compare(act, y) == 0
+			case Bin:
+				ok = bytes.Compare(act, y.Bytes()) == 0
+			default:
+				ok = string(act) == fmt.Sprintf("%v", y)
+			}
+			if !ok {
+				err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, act, exp)
 				return
 			}
 		}
@@ -245,13 +268,13 @@ func (rs *ResultSet) PrettyPrint(out io.Writer) {
 		hdr[i] = c.Name
 	}
 	table.SetHeader(hdr)
-	for _, r := range rs.data {
+	for i, r := range rs.data {
 		row := make([]string, len(r))
-		for i, s := range r {
-			if s == nil {
-				row[i] = "NULL"
+		for j, s := range r {
+			if rs.isNil(i, j) {
+				row[j] = "NULL"
 			} else {
-				row[i] = string(s)
+				row[j] = string(s)
 			}
 		}
 		table.Append(row)
@@ -274,8 +297,9 @@ func (rs *ResultSet) EncodeTo(w io.Writer) error {
 	tmp := struct {
 		Cols []ColumnDef
 		Data [][][]byte
+		Nils []uint64
 		Exec ExecResult
-	}{rs.cols, rs.data, rs.exec}
+	}{rs.cols, rs.data, rs.nils, rs.exec}
 	return enc.Encode(tmp)
 }
 
@@ -292,11 +316,60 @@ func (rs *ResultSet) DecodeFrom(r io.Reader) error {
 	var tmp struct {
 		Cols []ColumnDef
 		Data [][][]byte
+		Nils []uint64
 		Exec ExecResult
 	}
 	if err := dec.Decode(&tmp); err != nil {
 		return err
 	}
-	rs.cols, rs.data, rs.exec = tmp.Cols, tmp.Data, tmp.Exec
+	rs.cols, rs.data, rs.nils, rs.exec = tmp.Cols, tmp.Data, tmp.Nils, tmp.Exec
 	return nil
 }
+
+func (rs *ResultSet) markNil(i int, j int) {
+	n := i*len(rs.cols) + j
+	for 64*len(rs.nils) <= n {
+		rs.nils = append(rs.nils, 0)
+	}
+	pos, off := n/64, n%64
+	rs.nils[pos] |= 1 << off
+}
+
+func (rs *ResultSet) isNil(i int, j int) bool {
+	n := i*len(rs.cols) + j
+	if 64*len(rs.nils) <= n {
+		return false
+	}
+	pos, off := n/64, n%64
+	return (rs.nils[pos] & (1 << off)) > 0
+}
+
+func (rs *ResultSet) encodeCellTo(w io.Writer, i int, j int) error {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(len(rs.data[i][j])))
+	if rs.isNil(i, j) {
+		buf[0] |= 0x80
+	}
+	if _, err := w.Write(buf); err != nil {
+		return err
+	}
+	if _, err := w.Write(rs.data[i][j]); err != nil {
+		return err
+	}
+	return nil
+}
+
+type Bin interface {
+	Bytes() []byte
+}
+
+type BinBool bool
+
+func (b BinBool) Bytes() []byte {
+	if b {
+		return []byte{1}
+	}
+	return []byte{0}
+}
+
+// TODO: impl other types for binary protocol
