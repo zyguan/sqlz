@@ -44,7 +44,7 @@ func TestEventSerde(t *testing.T) {
 		{name: "block", event: NewBlockEvent("t")},
 		{name: "resume", event: NewResumeEvent("t")},
 		{name: "invoke", event: NewInvokeEvent("t", Invoke{Stmt: Stmt{"t", "select 1", S_QUERY}})},
-		{name: "return", event: newRetEvent(t, "t", "", Error{0, "oops"})},
+		{name: "return", event: newRetEvent(t, "t", "", &Error{0, "oops"})},
 		{name: "return", event: newRetEvent(t, "t", resultData[0], nil)},
 		{name: "return", event: newRetEvent(t, "t", resultData[1], nil)},
 		{name: "return", event: newRetEvent(t, "t", resultData[2], nil)},

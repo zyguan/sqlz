@@ -85,8 +85,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		ret.Stmt = e.ret.Stmt
 		ret.T = []int64{e.ret.T[0].UnixNano(), e.ret.T[1].UnixNano()}
 		if err := e.ret.Err; err != nil {
-			theErr := WrapError(err)
-			ret.Error = &theErr
+			ret.Error = WrapError(err).(*Error)
 			return json.Marshal(ret)
 		}
 		rs := e.ret.Res
@@ -183,7 +182,7 @@ func (e *Event) EqualTo(other Event) (bool, string) {
 			if thatRet.Err == nil {
 				return false, fmt.Sprintf(tag+": expect (%s), got ok", thisRet.Err.Error())
 			}
-			e1, e2 := WrapError(thisRet.Err), WrapError(thatRet.Err)
+			e1, e2 := WrapError(thisRet.Err).(*Error), WrapError(thatRet.Err).(*Error)
 			if e1.Code != e2.Code || (e1.Code < 0 && e1.Message != e2.Message) {
 				return false, fmt.Sprintf(tag+": expect (%s), got (%s)", e1.Error(), e2.Error())
 			}
@@ -265,28 +264,25 @@ type Error struct {
 	Message string `json:"message"`
 }
 
-func (e Error) Error() string {
+func (e *Error) Error() string {
 	if e.Code == 0 {
 		return e.Message
 	}
 	return fmt.Sprintf("E%d: %s", e.Code, e.Message)
 }
 
-func WrapError(err error) (e Error) {
+func WrapError(err error) error {
 	if err == nil {
-		return Error{Message: "ok"}
+		return nil
 	}
 	switch theErr := err.(type) {
 	case *mysql.MySQLError:
-		e = Error{int(theErr.Number), theErr.Message}
-	case Error:
-		e = theErr
+		return &Error{int(theErr.Number), theErr.Message}
 	case *Error:
-		e = *theErr
+		return theErr
 	default:
-		e = Error{-1, err.Error()}
+		return &Error{-1, err.Error()}
 	}
-	return e
 }
 
 type History []Event
