@@ -121,20 +121,20 @@ func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (Sessi
 			t0 := time.Now()
 			rows, err := c.QueryContext(ctx, s.SQL)
 			if err != nil {
-				f <- Return{s, nil, err, [2]time.Time{t0, time.Now()}}
+				f <- Return{s, nil, WrapError(err), [2]time.Time{t0, time.Now()}}
 				return
 			}
 			defer rows.Close()
 			res, err := resultset.ReadFromRows(rows)
-			f <- Return{s, res, err, [2]time.Time{t0, time.Now()}}
+			f <- Return{s, res, WrapError(err), [2]time.Time{t0, time.Now()}}
 		} else {
 			t0 := time.Now()
 			res, err := c.ExecContext(ctx, s.SQL)
 			if err != nil {
-				f <- Return{s, nil, err, [2]time.Time{t0, time.Now()}}
+				f <- Return{s, nil, WrapError(err), [2]time.Time{t0, time.Now()}}
 				return
 			}
-			f <- Return{s, resultset.NewFromResult(res), err, [2]time.Time{t0, time.Now()}}
+			f <- Return{s, resultset.NewFromResult(res), nil, [2]time.Time{t0, time.Now()}}
 		}
 	}()
 	r := RunningStmt{s, f}
@@ -185,14 +185,14 @@ type Block struct{}
 type Resume struct{}
 
 type Invoke struct {
-	Stmt Stmt
+	Stmt
 }
 
 type Return struct {
-	Stmt Stmt
-	Res  *resultset.ResultSet
-	Err  error
-	T    [2]time.Time
+	Stmt
+	Res *resultset.ResultSet
+	Err error
+	T   [2]time.Time
 }
 
 type Waitable interface{ Wait() }
@@ -201,6 +201,14 @@ type EvalOptions struct {
 	PingTime  time.Duration
 	BlockTime time.Duration
 	Callback  func(e Event)
+}
+
+func Run(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) error {
+	w, err := Eval(ctx, db, stmts, opts)
+	if w != nil {
+		w.Wait()
+	}
+	return err
 }
 
 func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Waitable, error) {

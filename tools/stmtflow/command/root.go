@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"database/sql"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -38,6 +39,11 @@ func Root() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stmtflow",
 		Short: "stmtflow - an enhanced mysql-test.",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if dsn := os.Getenv("STMTFLOW_DSN"); len(dsn) > 0 {
+				opts.DSN = dsn
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

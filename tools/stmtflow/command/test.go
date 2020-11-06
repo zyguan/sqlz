@@ -1,19 +1,30 @@
 package command
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
+	"os"
 
+	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 	"github.com/zyguan/sqlz/stmtflow"
-	"github.com/zyguan/sqlz/tools/stmtflow/test"
+	"github.com/zyguan/sqlz/tools/stmtflow/core"
 )
 
+type testOptions struct {
+	stmtflow.EvalOptions
+	Filter string
+	DryRun bool
+	Diff   bool
+}
+
 func Test(c *CommonOptions) *cobra.Command {
-	// TODO: filter & dry run
+	opts := testOptions{EvalOptions: c.EvalOptions()}
 	cmd := &cobra.Command{
-		Use:           "test [suite.jsonnet ...]",
+		Use:           "test [tests.jsonnet ...]",
 		Short:         "Run tests",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -27,33 +38,26 @@ func Test(c *CommonOptions) *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			// TODO: support concurrent execution
 			errCnt := 0
 			for _, path := range args {
-				log.Printf("load %s", path)
-				s, err := test.Load(path)
+				log.Printf("[%s] load tests", path)
+				tests, err := core.Load(path, opts.Filter)
 				if err != nil {
 					return err
 				}
-				for _, t := range s.Tests {
-					var h stmtflow.History
-					evalOpts := c.EvalOptions()
-					evalOpts.Callback = h.Collect
-					w, err := stmtflow.Eval(c.WithTimeout(ctx), db, t.Flow, evalOpts)
-					if w != nil {
-						w.Wait()
+				// TODO: support concurrent execution
+				for _, t := range tests {
+					if opts.DryRun {
+						log.Printf("[%s#%s] type:%s labels:%s", path, t.Name, t.AssertMethod, t.Labels)
+						continue
 					}
+					err = testOne(c.WithTimeout(ctx), db, t, opts)
 					if err != nil {
-						log.Printf("[%s#%s] eval failed: %+v", path, t.Name, err)
+						log.Printf("[%s#%s] failed: %+v", path, t.Name, err)
 						errCnt += 1
-						continue
+					} else {
+						log.Printf("[%s#%s] passed", path, t.Name)
 					}
-					if err = t.Assert(h); err != nil {
-						log.Printf("[%s#%s] assert failed: %+v", path, t.Name, err)
-						errCnt += 1
-						continue
-					}
-					log.Printf("[%s#%s] passed", path, t.Name)
 				}
 			}
 			if errCnt > 0 {
@@ -66,6 +70,33 @@ func Test(c *CommonOptions) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVarP(&opts.Filter, "filter", "f", "", "filter tests by a jsonnet expr, eg. std.startsWith(test.name, 'foo')")
+	cmd.Flags().BoolVarP(&opts.DryRun, "dry-run", "n", false, "just list tests to be run")
+	cmd.Flags().BoolVar(&opts.Diff, "diff", false, "diff text output if available")
 
 	return cmd
+}
+
+func testOne(ctx context.Context, db *sql.DB, test core.Test, opts testOptions) (err error) {
+	var actual stmtflow.History
+	evalOpts := opts.EvalOptions
+	evalOpts.Callback = actual.Collect
+	err = stmtflow.Run(ctx, db, test.Test, evalOpts)
+	if err != nil {
+		return errors.Annotate(err, "run test")
+	}
+	err = test.Assert(actual)
+	if err == nil || !opts.Diff {
+		return
+	}
+	exp, ok := test.ExpectedText()
+	if !ok {
+		return
+	}
+	buf := new(bytes.Buffer)
+	if e := actual.DumpText(buf, stmtflow.TextDumpOptions{Verbose: true}); e != nil {
+		return
+	}
+	_ = core.LocalDiff(os.Stdout, test.Name, exp, buf.String(), true)
+	return
 }

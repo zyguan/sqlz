@@ -1,6 +1,7 @@
 package stmtflow
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -216,6 +217,49 @@ func (e *Event) Invoke() Invoke { return *e.inv }
 
 func (e *Event) Return() Return { return *e.ret }
 
+func (e *Event) DumpText(w io.Writer, opts TextDumpOptions) {
+	switch e.Kind {
+	case EventInvoke:
+		sql := e.Invoke().SQL
+		if !strings.HasPrefix(sql, "/*") {
+			sql = fmt.Sprintf("/* %s */ %s", e.Invoke().Sess, sql)
+		}
+		fmt.Fprintln(w, sql)
+	case EventReturn:
+		ret := e.Return()
+		if ret.Err == nil {
+			if opts.Verbose && !ret.Res.IsExecResult() {
+				buf, fst := new(bytes.Buffer), true
+				ret.Res.PrettyPrint(buf)
+				for {
+					line, err := buf.ReadString('\n')
+					if err != nil {
+						break
+					}
+					if fst {
+						fmt.Fprint(w, "-- ", e.Session, " >> ", line)
+						fst = false
+					} else {
+						fmt.Fprint(w, "-- ", e.Session, "    ", line)
+					}
+				}
+			} else {
+				fmt.Fprintf(w, "-- %s >> %s\n", e.Session, ret.Res.String())
+			}
+			if opts.WithLat {
+				fmt.Fprintf(w, "-- %s    %s ~ %s (cost %s)\n", e.Session,
+					ret.T[0].Format("15:04:05.000"), ret.T[1].Format("15:04:05.000"), ret.T[1].Sub(ret.T[0]))
+			}
+		} else {
+			fmt.Fprintf(w, "-- %s >> %s\n", e.Session, ret.Err.Error())
+		}
+	case EventBlock:
+		fmt.Fprintf(w, "-- %s >> blocked\n", e.Session)
+	case EventResume:
+		fmt.Fprintf(w, "-- %s >> resumed\n", e.Session)
+	}
+}
+
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -233,12 +277,12 @@ func WrapError(err error) (e Error) {
 		return Error{Message: "ok"}
 	}
 	switch theErr := err.(type) {
+	case *mysql.MySQLError:
+		e = Error{int(theErr.Number), theErr.Message}
 	case Error:
 		e = theErr
 	case *Error:
 		e = *theErr
-	case *mysql.MySQLError:
-		e = Error{int(theErr.Number), theErr.Message}
 	default:
 		e = Error{-1, err.Error()}
 	}
@@ -247,9 +291,36 @@ func WrapError(err error) (e Error) {
 
 type History []Event
 
-func (h History) DumpJson(w io.Writer) error { return json.NewEncoder(w).Encode(h) }
+type JsonDumpOptions struct {
+	Prefix string
+	Indent string
+}
+
+func (h History) DumpJson(w io.Writer, opts JsonDumpOptions) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent(opts.Prefix, opts.Indent)
+	return enc.Encode(h)
+}
+
+type TextDumpOptions struct {
+	Verbose bool
+	WithLat bool
+}
+
+func (h History) DumpText(w io.Writer, opts TextDumpOptions) error {
+	for _, e := range h {
+		e.DumpText(w, opts)
+	}
+	return nil
+}
 
 func (h *History) Collect(e Event) { *h = append(*h, e) }
+
+func TextDumper(w io.Writer, opts TextDumpOptions) func(Event) {
+	return func(e Event) {
+		e.DumpText(w, opts)
+	}
+}
 
 func ComposeHandler(fs ...func(Event)) func(Event) {
 	return func(event Event) {
