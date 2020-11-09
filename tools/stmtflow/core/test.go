@@ -39,11 +39,8 @@ func (t *Test) Assert(actual History) error {
 		t.Repeat = 1
 	}
 	for _, a := range t.Assertions {
-		for j := 0; j < t.Repeat; j++ {
-			err := a.Assert(actual)
-			if err != nil {
-				return err
-			}
+		if err := a.Assert(actual); err != nil {
+			return err
 		}
 	}
 	return nil

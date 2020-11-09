@@ -51,7 +51,12 @@ func Test(c *CommonOptions) *cobra.Command {
 						log.Printf("[%s#%s] type:%s labels:%s", path, t.Name, t.AssertMethod, t.Labels)
 						continue
 					}
-					err = testOne(c.WithTimeout(ctx), db, t, opts)
+					for i := 0; i < t.Repeat; i++ {
+						err = testOne(c.WithTimeout(ctx), db, t, opts)
+						if err != nil {
+							break
+						}
+					}
 					if err != nil {
 						log.Printf("[%s#%s] failed: %+v", path, t.Name, err)
 						errCnt += 1
