@@ -51,7 +51,11 @@ func Test(c *CommonOptions) *cobra.Command {
 						log.Printf("[%s#%s] type:%s labels:%s", path, t.Name, t.AssertMethod, t.Labels)
 						continue
 					}
-					for i := 0; i < t.Repeat; i++ {
+					repeat := 1
+					if repeat < t.Repeat {
+						repeat = t.Repeat
+					}
+					for i := 0; i < repeat; i++ {
 						err = testOne(c.WithTimeout(ctx), db, t, opts)
 						if err != nil {
 							break
