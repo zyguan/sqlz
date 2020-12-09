@@ -250,6 +250,7 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 
 func (rs *ResultSet) PrettyPrint(out io.Writer) {
 	table := tablewriter.NewWriter(out)
+	table.SetAutoWrapText(false)
 	if rs.IsExecResult() {
 		table.SetHeader([]string{"RowsAffected", "LastInsertId"})
 		row := []string{"NULL", "NULL"}
