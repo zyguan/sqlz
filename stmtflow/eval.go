@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
@@ -73,6 +74,16 @@ func (p *Pool) Borrow(s string) (*BorrowedConn, error) {
 }
 
 func (p *Pool) Wait() { p.wg.Wait() }
+
+func (p *Pool) Close() error {
+	var fstErr error
+	for _, c := range p.conns {
+		if err := c.Close(); fstErr == nil && err != nil {
+			fstErr = err
+		}
+	}
+	return fstErr
+}
 
 type StmtStatus string
 
@@ -197,6 +208,11 @@ type Return struct {
 
 type Waitable interface{ Wait() }
 
+type WaitableCloser interface {
+	io.Closer
+	Waitable
+}
+
 type EvalOptions struct {
 	PingTime  time.Duration
 	BlockTime time.Duration
@@ -207,11 +223,12 @@ func Run(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) error 
 	w, err := Eval(ctx, db, stmts, opts)
 	if w != nil {
 		w.Wait()
+		w.Close()
 	}
 	return err
 }
 
-func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Waitable, error) {
+func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (WaitableCloser, error) {
 	pool, head, err := initForEval(ctx, db, stmts)
 	if err != nil {
 		return nil, err
