@@ -51,7 +51,7 @@ func Root() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.DSN, "dsn", "root:@tcp(127.0.0.1:3306)/test", "data source name")
 	cmd.PersistentFlags().DurationVar(&opts.Timeout, "timeout", 60*time.Second, "timeout for a single test")
 	cmd.PersistentFlags().DurationVar(&opts.PingTime, "ping-time", 200*time.Millisecond, "max wait time to ping a blocked statement")
-	cmd.PersistentFlags().DurationVar(&opts.BlockTime, "block-time", 3*time.Second, "max time to wait a newly submitted statement")
+	cmd.PersistentFlags().DurationVar(&opts.BlockTime, "block-time", 20*time.Second, "max time to wait a newly submitted statement")
 
 	cmd.AddCommand(AutoGen(), Play(&opts), Test(&opts))
 
