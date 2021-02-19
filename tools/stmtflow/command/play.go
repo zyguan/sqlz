@@ -26,11 +26,6 @@ func Play(c *CommonOptions) *cobra.Command {
 				return cmd.Help()
 			}
 			ctx := context.Background()
-			db, err := c.OpenDB()
-			if err != nil {
-				return err
-			}
-			defer db.Close()
 			for _, path := range args {
 				fmt.Println("# " + path)
 				var (
@@ -39,7 +34,11 @@ func Play(c *CommonOptions) *cobra.Command {
 					done     func()
 					evalOpts = c.EvalOptions()
 				)
-				in, err := os.Open(path)
+				db, err := c.OpenDB()
+				if err != nil {
+					return err
+				}
+				in, err = os.Open(path)
 				if err != nil {
 					return err
 				}
@@ -59,10 +58,14 @@ func Play(c *CommonOptions) *cobra.Command {
 						jsonOut.Close()
 						textOut.Close()
 						in.Close()
+						db.Close()
 					}
 				} else {
 					evalOpts.Callback = stmtflow.TextDumper(os.Stdout, opts.TextDumpOptions)
-					done = func() { in.Close() }
+					done = func() {
+						in.Close()
+						db.Close()
+					}
 				}
 
 				if err = stmtflow.Run(c.WithTimeout(ctx), db, core.ParseSQL(in), evalOpts); err != nil {
