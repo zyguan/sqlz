@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
@@ -16,13 +17,14 @@ import (
 
 type testOptions struct {
 	stmtflow.EvalOptions
-	Filter string
-	DryRun bool
-	Diff   bool
+	Filter  string
+	DryRun  bool
+	Diff    bool
+	DiffCmd string
 }
 
 func Test(c *CommonOptions) *cobra.Command {
-	opts := testOptions{EvalOptions: c.EvalOptions()}
+	opts := testOptions{}
 	cmd := &cobra.Command{
 		Use:           "test [tests.jsonnet ...]",
 		Short:         "Run tests",
@@ -32,12 +34,8 @@ func Test(c *CommonOptions) *cobra.Command {
 			if len(args) == 0 {
 				return cmd.Help()
 			}
+			opts.EvalOptions = c.EvalOptions()
 			ctx := context.Background()
-			db, err := c.OpenDB()
-			if err != nil {
-				return err
-			}
-			defer db.Close()
 			errCnt := 0
 			for _, path := range args {
 				log.Printf("[%s] load tests", path)
@@ -56,7 +54,12 @@ func Test(c *CommonOptions) *cobra.Command {
 						repeat = t.Repeat
 					}
 					for i := 0; i < repeat; i++ {
+						db, err := c.OpenDB()
+						if err != nil {
+							return err
+						}
 						err = testOne(c.WithTimeout(ctx), db, t, opts)
+						db.Close()
 						if err != nil {
 							break
 						}
@@ -82,6 +85,7 @@ func Test(c *CommonOptions) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Filter, "filter", "f", "", "filter tests by a jsonnet expr, eg. std.startsWith(test.name, 'foo')")
 	cmd.Flags().BoolVarP(&opts.DryRun, "dry-run", "n", false, "just list tests to be run")
 	cmd.Flags().BoolVar(&opts.Diff, "diff", false, "diff text output if available")
+	cmd.Flags().StringVar(&opts.DiffCmd, "diff-cmd", "diff -u -N --color", "diff command to use")
 
 	return cmd
 }
@@ -106,6 +110,6 @@ func testOne(ctx context.Context, db *sql.DB, test core.Test, opts testOptions) 
 	if e := actual.DumpText(buf, stmtflow.TextDumpOptions{Verbose: true}); e != nil {
 		return
 	}
-	_ = core.LocalDiff(os.Stdout, test.Name, exp, buf.String(), true)
+	_ = core.LocalDiff(os.Stdout, test.Name, exp, buf.String(), strings.Split(opts.DiffCmd, " "))
 	return
 }
