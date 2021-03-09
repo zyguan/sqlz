@@ -99,8 +99,8 @@ func TestDataDigest(t *testing.T) {
 	}
 	opts := DigestOptions{}
 	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
-	require.False(t, rs1.DataDigest(opts) == rs3.UnorderedDigest(opts))
-	require.False(t, rs1.UnorderedDigest(opts) == rs2.UnorderedDigest(opts))
+	require.False(t, rs1.DataDigest(opts) == rs3.OrderedDigest(opts))
+	require.False(t, rs1.OrderedDigest(opts) == rs2.OrderedDigest(opts))
 
 	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
 		if def.Type != "FLOAT" {
@@ -114,7 +114,7 @@ func TestDataDigest(t *testing.T) {
 	}
 	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
 	require.True(t, rs1.DataDigest(opts) == rs3.DataDigest(opts))
-	require.True(t, rs1.UnorderedDigest(opts) == rs2.UnorderedDigest(opts))
+	require.True(t, rs1.OrderedDigest(opts) == rs2.OrderedDigest(opts))
 
 	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
 		if def.Type != "FLOAT" {
