@@ -76,7 +76,7 @@ func TestEventSerde(t *testing.T) {
 					if tt.event.ret.Res.IsExecResult() {
 						require.Equal(t, tt.event.ret.Res.ExecResult(), ev.ret.Res.ExecResult())
 					} else {
-						require.Equal(t, tt.event.ret.Res.DataDigest(), ev.ret.Res.DataDigest())
+						require.Equal(t, tt.event.ret.Res.DataDigest(resultset.DigestOptions{}), ev.ret.Res.DataDigest(resultset.DigestOptions{}))
 					}
 				}
 			}

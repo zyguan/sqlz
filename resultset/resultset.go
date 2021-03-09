@@ -153,7 +153,7 @@ func (rs *ResultSet) AllocateRow() []interface{} {
 	return xs
 }
 
-func (rs *ResultSet) DataDigest(optFilters ...func(i int, j int, raw []byte) bool) string {
+func (rs *ResultSet) DataDigest(opts DigestOptions) string {
 	if rs.IsExecResult() {
 		return ""
 	}
@@ -161,29 +161,29 @@ func (rs *ResultSet) DataDigest(optFilters ...func(i int, j int, raw []byte) boo
 	for i, row := range rs.data {
 	cellLoop:
 		for j, v := range row {
-			for _, filter := range optFilters {
-				if filter != nil && !filter(i, j, v) {
+			for _, filter := range opts.Filters {
+				if filter != nil && !filter(i, j, v, rs.cols[j]) {
 					continue cellLoop
 				}
 			}
-			_ = rs.encodeCellTo(h, i, j)
+			_ = rs.encodeCellTo(h, i, j, opts.Mapper)
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (rs *ResultSet) UnorderedDigest(optFilters ...func(i int, j int, raw []byte) bool) string {
+func (rs *ResultSet) UnorderedDigest(opts DigestOptions) string {
 	digests := make([][]byte, rs.NRows())
 	for i, row := range rs.data {
 		h := sha1.New()
 	cellLoop:
 		for j, v := range row {
-			for _, filter := range optFilters {
-				if filter != nil && !filter(i, j, v) {
+			for _, filter := range opts.Filters {
+				if filter != nil && !filter(i, j, v, rs.cols[j]) {
 					continue cellLoop
 				}
 			}
-			_ = rs.encodeCellTo(h, i, j)
+			_ = rs.encodeCellTo(h, i, j, opts.Mapper)
 		}
 		digests[i] = h.Sum(nil)
 	}
@@ -345,19 +345,28 @@ func (rs *ResultSet) isNil(i int, j int) bool {
 	return (rs.nils[pos] & (1 << off)) > 0
 }
 
-func (rs *ResultSet) encodeCellTo(w io.Writer, i int, j int) error {
+func (rs *ResultSet) encodeCellTo(w io.Writer, i int, j int, f func(i int, j int, raw []byte, def ColumnDef) []byte) error {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(len(rs.data[i][j])))
+	raw := rs.data[i][j]
+	if f != nil {
+		raw = f(i, j, raw, rs.cols[j])
+	}
+	binary.BigEndian.PutUint32(buf, uint32(len(raw)))
 	if rs.isNil(i, j) {
 		buf[0] |= 0x80
 	}
 	if _, err := w.Write(buf); err != nil {
 		return err
 	}
-	if _, err := w.Write(rs.data[i][j]); err != nil {
+	if _, err := w.Write(raw); err != nil {
 		return err
 	}
 	return nil
+}
+
+type DigestOptions struct {
+	Filters []func(i int, j int, raw []byte, def ColumnDef) bool
+	Mapper  func(i int, j int, raw []byte, def ColumnDef) []byte
 }
 
 type Bin interface {

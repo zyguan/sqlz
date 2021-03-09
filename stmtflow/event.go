@@ -161,7 +161,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	}
 }
 
-func (e *Event) EqualTo(other Event) (bool, string) {
+func (e *Event) EqualTo(other Event, opts ...resultset.DigestOptions) (bool, string) {
 	if e.EventMeta != other.EventMeta {
 		return false, fmt.Sprintf("expect %+v, got %+v", e.EventMeta, other.EventMeta)
 	}
@@ -195,13 +195,17 @@ func (e *Event) EqualTo(other Event) (bool, string) {
 				return false, fmt.Sprintf(tag+": expect [%s], got [%s]", r1, r2)
 			}
 			if !r1.IsExecResult() {
+				var o resultset.DigestOptions
+				if len(opts) > 0 {
+					o = opts[0]
+				}
 				h1, h2 := "", ""
 				if thisRet.Stmt.Flags&S_UNORDERED > 0 {
-					h1 = r1.UnorderedDigest()
-					h2 = r2.UnorderedDigest()
+					h1 = r1.UnorderedDigest(o)
+					h2 = r2.UnorderedDigest(o)
 				} else {
-					h1 = r1.DataDigest()
-					h2 = r2.DataDigest()
+					h1 = r1.DataDigest(o)
+					h2 = r2.DataDigest(o)
 				}
 				if h1 != h2 {
 					return false, fmt.Sprintf(tag+": expect digest %s, got %s", h1, h2)
