@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"flag"
+	"fmt"
 	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
@@ -72,6 +75,60 @@ func TestAssertDataNil(t *testing.T) {
 
 }
 
+func TestDataDigest(t *testing.T) {
+	rs1 := ResultSet{
+		cols: []ColumnDef{{Name: "foo", Type: "FLOAT"}},
+		data: [][][]byte{
+			{[]byte("2.718")},
+			{[]byte("3.14")},
+		},
+	}
+	rs2 := ResultSet{
+		cols: []ColumnDef{{Name: "foo", Type: "FLOAT"}},
+		data: [][][]byte{
+			{[]byte("3.141")},
+			{[]byte("2.72")},
+		},
+	}
+	rs3 := ResultSet{
+		cols: []ColumnDef{{Name: "foo", Type: "FLOAT"}},
+		data: [][][]byte{
+			{[]byte("2.7180")},
+			{[]byte("3.1400")},
+		},
+	}
+	opts := DigestOptions{}
+	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
+	require.False(t, rs1.DataDigest(opts) == rs3.UnorderedDigest(opts))
+	require.False(t, rs1.UnorderedDigest(opts) == rs2.UnorderedDigest(opts))
+
+	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
+		if def.Type != "FLOAT" {
+			return raw
+		}
+		f, err := strconv.ParseFloat(string(raw), 10)
+		if err != nil {
+			return raw
+		}
+		return []byte(fmt.Sprintf("%.2f", f))
+	}
+	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
+	require.True(t, rs1.DataDigest(opts) == rs3.DataDigest(opts))
+	require.True(t, rs1.UnorderedDigest(opts) == rs2.UnorderedDigest(opts))
+
+	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
+		if def.Type != "FLOAT" {
+			return raw
+		}
+		f, err := strconv.ParseFloat(string(raw), 10)
+		if err != nil {
+			return raw
+		}
+		return []byte(fmt.Sprintf("%.6f", f))
+	}
+	require.True(t, rs1.DataDigest(opts) == rs3.DataDigest(opts))
+}
+
 func TestEncodeDecodeCheck(t *testing.T) {
 	for i, rs := range rss {
 		t.Run("EncodeDecodeCheck#"+strconv.Itoa(i), tEncodeDecodeCheck(&rs))
@@ -102,7 +159,7 @@ func tEncodeDecodeCheck(rs1 *ResultSet) func(t *testing.T) {
 		assert.NoError(t, err)
 		rs2 := &ResultSet{}
 		assert.NoError(t, rs2.Decode(bs))
-		assert.Equal(t, rs1.DataDigest(), rs2.DataDigest())
+		assert.Equal(t, rs1.DataDigest(DigestOptions{}), rs2.DataDigest(DigestOptions{}))
 		assert.Equal(t, rs1.ExecResult(), rs2.ExecResult())
 		assert.NoError(t, Diff(rs1, rs2, DiffOptions{CheckPrecision: true, CheckSchema: true}))
 
