@@ -201,8 +201,8 @@ func (e *Event) EqualTo(other Event, opts ...resultset.DigestOptions) (bool, str
 				}
 				h1, h2 := "", ""
 				if thisRet.Stmt.Flags&S_UNORDERED > 0 {
-					h1 = r1.UnorderedDigest(o)
-					h2 = r2.UnorderedDigest(o)
+					h1 = r1.OrderedDigest(o)
+					h2 = r2.OrderedDigest(o)
 				} else {
 					h1 = r1.DataDigest(o)
 					h2 = r2.DataDigest(o)

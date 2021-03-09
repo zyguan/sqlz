@@ -172,7 +172,7 @@ func (rs *ResultSet) DataDigest(opts DigestOptions) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (rs *ResultSet) UnorderedDigest(opts DigestOptions) string {
+func (rs *ResultSet) OrderedDigest(opts DigestOptions) string {
 	digests := make([][]byte, rs.NRows())
 	for i, row := range rs.data {
 		h := sha1.New()
