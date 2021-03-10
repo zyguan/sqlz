@@ -200,13 +200,9 @@ func (e *Event) EqualTo(other Event, opts ...resultset.DigestOptions) (bool, str
 					o = opts[0]
 				}
 				h1, h2 := "", ""
-				if thisRet.Stmt.Flags&S_UNORDERED > 0 {
-					h1 = r1.OrderedDigest(o)
-					h2 = r2.OrderedDigest(o)
-				} else {
-					h1 = r1.DataDigest(o)
-					h2 = r2.DataDigest(o)
-				}
+				o.Sort = o.Sort || thisRet.Stmt.Flags&S_UNORDERED > 0
+				h1 = r1.DataDigest(o)
+				h2 = r2.DataDigest(o)
 				if h1 != h2 {
 					return false, fmt.Sprintf(tag+": expect digest %s, got %s", h1, h2)
 				}

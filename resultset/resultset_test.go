@@ -97,12 +97,13 @@ func TestDataDigest(t *testing.T) {
 			{[]byte("3.1400")},
 		},
 	}
-	opts := DigestOptions{}
-	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
-	require.False(t, rs1.DataDigest(opts) == rs3.OrderedDigest(opts))
-	require.False(t, rs1.OrderedDigest(opts) == rs2.OrderedDigest(opts))
+	opts1 := DigestOptions{}
+	opts2 := DigestOptions{Sort: true}
+	require.False(t, rs1.DataDigest(opts1) == rs2.DataDigest(opts1))
+	require.False(t, rs1.DataDigest(opts1) == rs3.DataDigest(opts2))
+	require.False(t, rs1.DataDigest(opts2) == rs2.DataDigest(opts2))
 
-	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
+	opts1.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
 		if def.Type != "FLOAT" {
 			return raw
 		}
@@ -112,11 +113,12 @@ func TestDataDigest(t *testing.T) {
 		}
 		return []byte(fmt.Sprintf("%.2f", f))
 	}
-	require.False(t, rs1.DataDigest(opts) == rs2.DataDigest(opts))
-	require.True(t, rs1.DataDigest(opts) == rs3.DataDigest(opts))
-	require.True(t, rs1.OrderedDigest(opts) == rs2.OrderedDigest(opts))
+	opts2.Mapper = opts1.Mapper
+	require.False(t, rs1.DataDigest(opts1) == rs2.DataDigest(opts1))
+	require.True(t, rs1.DataDigest(opts1) == rs3.DataDigest(opts1))
+	require.True(t, rs1.DataDigest(opts2) == rs2.DataDigest(opts2))
 
-	opts.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
+	opts1.Mapper = func(i int, j int, raw []byte, def ColumnDef) []byte {
 		if def.Type != "FLOAT" {
 			return raw
 		}
@@ -126,7 +128,7 @@ func TestDataDigest(t *testing.T) {
 		}
 		return []byte(fmt.Sprintf("%.6f", f))
 	}
-	require.True(t, rs1.DataDigest(opts) == rs3.DataDigest(opts))
+	require.True(t, rs1.DataDigest(opts1) == rs3.DataDigest(opts1))
 }
 
 func TestEncodeDecodeCheck(t *testing.T) {
