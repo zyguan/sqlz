@@ -157,6 +157,9 @@ func (rs *ResultSet) DataDigest(opts DigestOptions) string {
 	if rs.IsExecResult() {
 		return ""
 	}
+	if opts.Sort {
+		return rs.sortedDigest(opts)
+	}
 	h := sha1.New()
 	for i, row := range rs.data {
 	cellLoop:
@@ -172,7 +175,7 @@ func (rs *ResultSet) DataDigest(opts DigestOptions) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (rs *ResultSet) OrderedDigest(opts DigestOptions) string {
+func (rs *ResultSet) sortedDigest(opts DigestOptions) string {
 	digests := make([][]byte, rs.NRows())
 	for i, row := range rs.data {
 		h := sha1.New()
@@ -365,6 +368,7 @@ func (rs *ResultSet) encodeCellTo(w io.Writer, i int, j int, f func(i int, j int
 }
 
 type DigestOptions struct {
+	Sort    bool
 	Filters []func(i int, j int, raw []byte, def ColumnDef) bool
 	Mapper  func(i int, j int, raw []byte, def ColumnDef) []byte
 }
