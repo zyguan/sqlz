@@ -129,6 +129,12 @@ func TestDataDigest(t *testing.T) {
 		return []byte(fmt.Sprintf("%.6f", f))
 	}
 	require.True(t, rs1.DataDigest(opts1) == rs3.DataDigest(opts1))
+	require.True(t, rs1.DataDigest(opts2) == rs2.DataDigest(opts2))
+
+	opts2.Filter = func(i int, j int, raw []byte, def ColumnDef) bool {
+		return i < 1
+	}
+	require.False(t, rs1.DataDigest(opts2) == rs2.DataDigest(opts2))
 }
 
 func TestEncodeDecodeCheck(t *testing.T) {

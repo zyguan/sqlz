@@ -162,12 +162,9 @@ func (rs *ResultSet) DataDigest(opts DigestOptions) string {
 	}
 	h := sha1.New()
 	for i, row := range rs.data {
-	cellLoop:
 		for j, v := range row {
-			for _, filter := range opts.Filters {
-				if filter != nil && !filter(i, j, v, rs.cols[j]) {
-					continue cellLoop
-				}
+			if opts.Filter != nil && !opts.Filter(i, j, v, rs.cols[j]) {
+				continue
 			}
 			_ = rs.encodeCellTo(h, i, j, opts.Mapper)
 		}
@@ -179,12 +176,9 @@ func (rs *ResultSet) sortedDigest(opts DigestOptions) string {
 	digests := make([][]byte, rs.NRows())
 	for i, row := range rs.data {
 		h := sha1.New()
-	cellLoop:
 		for j, v := range row {
-			for _, filter := range opts.Filters {
-				if filter != nil && !filter(i, j, v, rs.cols[j]) {
-					continue cellLoop
-				}
+			if opts.Filter != nil && !opts.Filter(i, j, v, rs.cols[j]) {
+				continue
 			}
 			_ = rs.encodeCellTo(h, i, j, opts.Mapper)
 		}
@@ -368,9 +362,9 @@ func (rs *ResultSet) encodeCellTo(w io.Writer, i int, j int, f func(i int, j int
 }
 
 type DigestOptions struct {
-	Sort    bool
-	Filters []func(i int, j int, raw []byte, def ColumnDef) bool
-	Mapper  func(i int, j int, raw []byte, def ColumnDef) []byte
+	Sort   bool
+	Filter func(i int, j int, raw []byte, def ColumnDef) bool
+	Mapper func(i int, j int, raw []byte, def ColumnDef) []byte
 }
 
 type Bin interface {
