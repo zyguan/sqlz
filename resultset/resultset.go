@@ -10,8 +10,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
+	"unicode"
 
 	"github.com/olekukonko/tablewriter"
 )
@@ -227,17 +229,26 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 			switch y := exp.(type) {
 			case string:
 				ok = string(act) == y
-			case fmt.Stringer:
-				ok = string(act) == y.String()
 			case []byte:
 				ok = bytes.Compare(act, y) == 0
 			case Bin:
 				ok = bytes.Compare(act, y.Bytes()) == 0
+			case Cell:
+				ok = y.EqualTo(rs.ColumnDef(j), act)
+			case fmt.Stringer:
+				ok = string(act) == y.String()
 			default:
 				ok = string(act) == fmt.Sprintf("%v", y)
 			}
 			if !ok {
-				err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, act, exp)
+				actStr := string(act)
+				for _, r := range actStr {
+					if !unicode.IsPrint(r) {
+						actStr = fmt.Sprintf("%v", act)
+						break
+					}
+				}
+				err = fmt.Errorf("data mismatch (%q#%d): %v <> %v", rs.cols[j].Name, i, actStr, exp)
 				return
 			}
 		}
@@ -365,6 +376,46 @@ type DigestOptions struct {
 	Sort   bool
 	Filter func(i int, j int, raw []byte, def ColumnDef) bool
 	Mapper func(i int, j int, raw []byte, def ColumnDef) []byte
+}
+
+type Cell interface {
+	fmt.Formatter
+	EqualTo(def ColumnDef, raw []byte) bool
+}
+
+type FloatCell struct {
+	Value float64
+	Delta float64
+}
+
+func Float(xs ...float64) FloatCell {
+	c := FloatCell{}
+	if len(xs) > 0 {
+		c.Value = xs[0]
+	}
+	if len(xs) > 1 {
+		c.Delta = xs[1]
+	}
+	return c
+}
+
+func (c FloatCell) Format(f fmt.State, verb rune) {
+	fmt.Fprint(f, c.String())
+}
+
+func (c FloatCell) EqualTo(def ColumnDef, raw []byte) bool {
+	val, err := strconv.ParseFloat(string(raw), 64)
+	if err != nil {
+		return false
+	}
+	return math.Abs(c.Value-val) <= math.Abs(c.Delta)
+}
+
+func (c FloatCell) String() string {
+	if c.Delta == 0 {
+		return fmt.Sprint(c.Value)
+	}
+	return fmt.Sprint(c.Value) + "±" + fmt.Sprint(math.Abs(c.Delta))
 }
 
 type Bin interface {

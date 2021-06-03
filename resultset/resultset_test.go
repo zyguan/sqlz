@@ -72,7 +72,20 @@ func TestAssertDataNil(t *testing.T) {
 	rs.markNil(0, 0)
 	assert.Error(rs.AssertData(Rows{{""}}, cb))
 	assert.Equal(2, callCnt)
+}
 
+func TestAssertDataFloat(t *testing.T) {
+	rs := ResultSet{
+		cols: []ColumnDef{{Name: "foo", Type: "FLOAT"}},
+		data: [][][]byte{
+			{[]byte("2.7180")},
+			{[]byte("3.1400")},
+		},
+	}
+	require.NoError(t, rs.AssertData(Rows{{Float(2.718)}, {Float(3.14)}}))
+	require.NoError(t, rs.AssertData(Rows{{Float(2.72, 0.01)}, {Float(3.15, 0.01)}}))
+	require.Error(t, rs.AssertData(Rows{{Float(2.72, 0.001)}, {Float(3.15, 0.01)}}))
+	require.Error(t, rs.AssertData(Rows{{Float(2.72, 0.01)}, {Float(3.15, 0.001)}}))
 }
 
 func TestDataDigest(t *testing.T) {
@@ -157,6 +170,48 @@ func TestEncodeDecodeWithMySQLDataSource(t *testing.T) {
 		rs, err := ReadFromRows(rows)
 		assert.NoError(t, err, "read rows from "+table)
 		t.Run("EncodeDecode[MySQL:"+table+"]", tEncodeDecodeCheck(rs))
+	}
+}
+
+func TestFloatCell(t *testing.T) {
+	type EqTest struct {
+		raw string
+		ok  bool
+	}
+	for i, tt := range []struct {
+		float   FloatCell
+		literal string
+		tests   []EqTest
+	}{
+		{float: Float(), literal: "0", tests: []EqTest{
+			{"0", true},
+			{"0.0", true},
+			{"0.00001", false},
+			{"NULL", false},
+		}},
+		{float: Float(3.14), literal: "3.14", tests: []EqTest{
+			{"3.14", true},
+			{"3.1400", true},
+			{"3.1415", false},
+			{"NULL", false},
+		}},
+		{float: Float(3.1415, 0.001), literal: "3.1415±0.001", tests: []EqTest{
+			{"3.1415", true},
+			{"3.1410", true},
+			{"3.1420", true},
+			{"3.14", false},
+			{"NULL", false},
+		}},
+	} {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			require.Equal(t, tt.literal, tt.float.String())
+			require.Equal(t, tt.literal, fmt.Sprintf("%s", tt.float))
+			require.Equal(t, tt.literal, fmt.Sprintf("%v", tt.float))
+			require.Equal(t, tt.literal, fmt.Sprintf("%+v", tt.float))
+			for _, et := range tt.tests {
+				require.Equal(t, et.ok, tt.float.EqualTo(ColumnDef{}, []byte(et.raw)))
+			}
+		})
 	}
 }
 
