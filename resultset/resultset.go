@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha1"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/hex"
@@ -384,38 +385,66 @@ type Cell interface {
 }
 
 type FloatCell struct {
-	Value float64
+	V     string
 	Delta float64
 }
 
-func Float(xs ...float64) FloatCell {
-	c := FloatCell{}
-	if len(xs) > 0 {
-		c.Value = xs[0]
+func Float(v string, delta float64) *FloatCell {
+	c := FloatCell{
+		V:     v,
+		Delta: delta,
 	}
-	if len(xs) > 1 {
-		c.Delta = xs[1]
-	}
-	return c
+	return &c
 }
 
-func (c FloatCell) Format(f fmt.State, verb rune) {
+func (c *FloatCell) Format(f fmt.State, verb rune) {
 	fmt.Fprint(f, c.String())
 }
 
-func (c FloatCell) EqualTo(def ColumnDef, raw []byte) bool {
+func (c *FloatCell) EqualTo(def ColumnDef, raw []byte) bool {
+	v, err := strconv.ParseFloat(c.V, 64)
+	if err != nil {
+		return false
+	}
+
 	val, err := strconv.ParseFloat(string(raw), 64)
 	if err != nil {
 		return false
 	}
-	return math.Abs(c.Value-val) <= math.Abs(c.Delta)
+	return math.Abs(v-val) <= math.Abs(c.Delta)
 }
 
-func (c FloatCell) String() string {
-	if c.Delta == 0 {
-		return fmt.Sprint(c.Value)
-	}
-	return fmt.Sprint(c.Value) + "±" + fmt.Sprint(math.Abs(c.Delta))
+func (c *FloatCell) String() string {
+	return c.V
+}
+
+func (c *FloatCell) Value() (driver.Value, error) {
+	return c.V, nil
+}
+
+type BitCell struct {
+	v int
+}
+
+func Bit(v int) *BitCell {
+	c := BitCell{v: v}
+	return &c
+}
+
+func (c *BitCell) Format(f fmt.State, verb rune) {
+	fmt.Fprint(f, c.String())
+}
+
+func (c *BitCell) EqualTo(def ColumnDef, raw []byte) bool {
+	return raw[0] == byte(c.v)
+}
+
+func (c *BitCell) String() string {
+	return fmt.Sprint(c.v)
+}
+
+func (c *BitCell) Value() (driver.Value, error) {
+	return c.v == 1, nil
 }
 
 type Bin interface {
