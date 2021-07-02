@@ -36,17 +36,7 @@ type BorrowedConn struct {
 	pool *Pool
 }
 
-func (c *BorrowedConn) Return() error {
-	p, s := c.pool, c.sess
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	if p.flags[s]&flagExist == 0 {
-		return ErrConnNotExist
-	}
-	p.flags[s] &^= flagInUse
-	p.wg.Done()
-	return nil
-}
+func (c *BorrowedConn) Return() error { return c.pool.Return(c.sess) }
 
 func (p *Pool) Put(s string, c *sql.Conn) error {
 	p.lock.Lock()
@@ -71,6 +61,20 @@ func (p *Pool) Borrow(s string) (*BorrowedConn, error) {
 	p.flags[s] |= flagInUse
 	p.wg.Add(1)
 	return &BorrowedConn{p.conns[s], s, p}, nil
+}
+
+func (p *Pool) Return(s string) error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	if p.flags[s]&flagExist == 0 {
+		return ErrConnNotExist
+	}
+	if p.flags[s]&flagInUse == 0 {
+		return nil
+	}
+	p.flags[s] &^= flagInUse
+	p.wg.Done()
+	return nil
 }
 
 func (p *Pool) Wait() { p.wg.Wait() }
@@ -124,10 +128,8 @@ func (s Stmt) Result() Return { return Return{} }
 func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (SessionStmt, error) {
 	f := make(chan Return, 1)
 	go func() {
-		defer func() {
-			c.Return()
-			close(f)
-		}()
+		defer c.Return()
+
 		if s.Flags&S_QUERY > 0 {
 			t0 := time.Now()
 			rows, err := c.QueryContext(ctx, s.SQL)
@@ -277,6 +279,7 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 				// Assert typeof(s) == CompletedStmt
 				callback(NewReturnEvent(stmt.Session(), s.Result()))
 				p.next = p.next.next
+				pool.Return(s.Session())
 				break
 			} else if status == Running {
 				s, err := stmt.Poll(ctx, nil, opts.PingTime)
@@ -291,6 +294,7 @@ func Eval(ctx context.Context, db *sql.DB, stmts []Stmt, opts EvalOptions) (Wait
 				callback(NewResumeEvent(stmt.Session()))
 				callback(NewReturnEvent(stmt.Session(), s.Result()))
 				p.next = p.next.next
+				pool.Return(s.Session())
 				break
 			} else {
 				return pool, errors.New("invalid statement status: " + string(stmt.Status()))
