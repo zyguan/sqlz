@@ -1,4 +1,4 @@
-package resultset
+package sqlz
 
 import (
 	"bytes"
@@ -62,7 +62,7 @@ func NewFromResult(res sql.Result) *ResultSet {
 	return rs
 }
 
-func ReadFromRows(rows *sql.Rows) (*ResultSet, error) {
+func ReadFromRows(rows RowIterator) (*ResultSet, error) {
 	types, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, err

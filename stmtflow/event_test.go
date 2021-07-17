@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zyguan/sqlz"
+
 	"github.com/stretchr/testify/require"
-	"github.com/zyguan/sqlz/resultset"
 )
 
 var resultData = []string{
@@ -29,7 +30,7 @@ func newRetEvent(t testing.TB, s string, res string, err error) Event {
 	}
 	raw, err := base64.StdEncoding.DecodeString(res)
 	require.NoError(t, err)
-	var rs resultset.ResultSet
+	var rs sqlz.ResultSet
 	require.NoError(t, rs.Decode(raw))
 	return NewReturnEvent(s, Return{Res: &rs, T: tt})
 }
@@ -76,7 +77,7 @@ func TestEventSerde(t *testing.T) {
 					if tt.event.ret.Res.IsExecResult() {
 						require.Equal(t, tt.event.ret.Res.ExecResult(), ev.ret.Res.ExecResult())
 					} else {
-						require.Equal(t, tt.event.ret.Res.DataDigest(resultset.DigestOptions{}), ev.ret.Res.DataDigest(resultset.DigestOptions{}))
+						require.Equal(t, tt.event.ret.Res.DataDigest(sqlz.DigestOptions{}), ev.ret.Res.DataDigest(sqlz.DigestOptions{}))
 					}
 				}
 			}

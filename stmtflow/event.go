@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/zyguan/sqlz/resultset"
+	"github.com/zyguan/sqlz"
 )
 
 const (
@@ -154,14 +154,14 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		e.ret.Res = new(resultset.ResultSet)
+		e.ret.Res = new(sqlz.ResultSet)
 		return e.ret.Res.Decode(raw)
 	default:
 		return errors.New("unknown event: " + e.Kind)
 	}
 }
 
-func (e *Event) EqualTo(other Event, opts ...resultset.DigestOptions) (bool, string) {
+func (e *Event) EqualTo(other Event, opts ...sqlz.DigestOptions) (bool, string) {
 	if e.EventMeta != other.EventMeta {
 		return false, fmt.Sprintf("expect %+v, got %+v", e.EventMeta, other.EventMeta)
 	}
@@ -195,7 +195,7 @@ func (e *Event) EqualTo(other Event, opts ...resultset.DigestOptions) (bool, str
 				return false, fmt.Sprintf(tag+": expect [%s], got [%s]", r1, r2)
 			}
 			if !r1.IsExecResult() {
-				var o resultset.DigestOptions
+				var o sqlz.DigestOptions
 				if len(opts) > 0 {
 					o = opts[0]
 				}
