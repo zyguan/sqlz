@@ -1,4 +1,4 @@
-package resultset
+package sqlz
 
 import (
 	"bytes"

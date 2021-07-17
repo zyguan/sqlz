@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zyguan/sqlz/resultset"
+	"github.com/zyguan/sqlz"
 )
 
 var (
@@ -138,7 +138,7 @@ func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (Sessi
 				return
 			}
 			defer rows.Close()
-			res, err := resultset.ReadFromRows(rows)
+			res, err := sqlz.ReadFromRows(rows)
 			f <- Return{s, res, WrapError(err), [2]time.Time{t0, time.Now()}}
 		} else {
 			t0 := time.Now()
@@ -147,7 +147,7 @@ func (s Stmt) Poll(ctx context.Context, c *BorrowedConn, w time.Duration) (Sessi
 				f <- Return{s, nil, WrapError(err), [2]time.Time{t0, time.Now()}}
 				return
 			}
-			f <- Return{s, resultset.NewFromResult(res), nil, [2]time.Time{t0, time.Now()}}
+			f <- Return{s, sqlz.NewFromResult(res), nil, [2]time.Time{t0, time.Now()}}
 		}
 	}()
 	r := RunningStmt{s, f}
@@ -203,7 +203,7 @@ type Invoke struct {
 
 type Return struct {
 	Stmt
-	Res *resultset.ResultSet
+	Res *sqlz.ResultSet
 	Err error
 	T   [2]time.Time
 }
