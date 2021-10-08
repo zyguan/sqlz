@@ -14,9 +14,12 @@ import (
 	"sort"
 	"strconv"
 	"unicode"
-
-	"github.com/olekukonko/tablewriter"
 )
+
+type TableFormatter interface {
+	SetHeader(hdr []string)
+	Append(row []string)
+}
 
 type Rows [][]interface{}
 
@@ -256,11 +259,9 @@ func (rs *ResultSet) AssertData(expect Rows, onErr ...func(act *ResultSet, exp R
 	return
 }
 
-func (rs *ResultSet) PrettyPrint(out io.Writer) {
-	table := tablewriter.NewWriter(out)
-	table.SetAutoWrapText(false)
+func (rs *ResultSet) Dump(formatter TableFormatter) {
 	if rs.IsExecResult() {
-		table.SetHeader([]string{"RowsAffected", "LastInsertId"})
+		formatter.SetHeader([]string{"RowsAffected", "LastInsertId"})
 		row := []string{"NULL", "NULL"}
 		if rs.exec.HasRowsAffected {
 			row[0] = strconv.FormatInt(rs.exec.RowsAffected, 10)
@@ -268,27 +269,25 @@ func (rs *ResultSet) PrettyPrint(out io.Writer) {
 		if rs.exec.HasLastInsertId {
 			row[1] = strconv.FormatInt(rs.exec.LastInsertId, 10)
 		}
-		table.Append(row)
-		table.Render()
-		return
-	}
-	hdr := make([]string, len(rs.cols))
-	for i, c := range rs.cols {
-		hdr[i] = c.Name
-	}
-	table.SetHeader(hdr)
-	for i, r := range rs.data {
-		row := make([]string, len(r))
-		for j, s := range r {
-			if rs.isNil(i, j) {
-				row[j] = "NULL"
-			} else {
-				row[j] = string(s)
-			}
+		formatter.Append(row)
+	} else {
+		hdr := make([]string, len(rs.cols))
+		for i, c := range rs.cols {
+			hdr[i] = c.Name
 		}
-		table.Append(row)
+		formatter.SetHeader(hdr)
+		for i, r := range rs.data {
+			row := make([]string, len(r))
+			for j, s := range r {
+				if rs.isNil(i, j) {
+					row[j] = "NULL"
+				} else {
+					row[j] = string(s)
+				}
+			}
+			formatter.Append(row)
+		}
 	}
-	table.Render()
 }
 
 func (rs *ResultSet) Encode() ([]byte, error) {
